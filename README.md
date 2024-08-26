@@ -20,7 +20,100 @@ In our attack simulation experiment, we argued that in real-life scenarios, simu
 
 The attack modeling involves the simultaneous perturbation of sensor readings (s, GPSS, and Ax) for 10-time steps when certain conditions are met. This perturbation introduces spatial anomalies, challenging the robustness and resilience of sensor fusion systems.
 
+## Details of the attack algorithm in Python 
+def apply_anomalies(dfdata, anomaly_type):
+    # Copy sensor data to create anomaly-applied versions
+    In_vehicle_anomaly = dfdata['InVehicle_Longitudinal_Speed'].values.copy()
+    GPS_Speed_anomaly = dfdata['GPS_Speed'].values.copy()
+    Acc_anomaly = dfdata['InVehicle_Longitudinal_Accel'].values.copy()
+    class_output = np.zeros(len(dfdata))
 
+    for t in range(len(dfdata)):  # Loop over the dataset length
+        if np.random.uniform(0, 1) <= ALPHA:  # Determine if anomaly should be applied based on ALPHA
+            zeta = np.random.uniform(0, 1)  # Random value to select the sensor
+
+            # Determine the actual anomaly type to be applied
+            ANOMALY_TYPE_ACTUAL = anomaly_type
+            if anomaly_type == 5:  # Mixed anomaly
+                ANOMALY_TYPE_ACTUAL = np.random.randint(1, NUM_TYPES + 1)
+
+            for i in range(NUM_SENSORS):
+                if i / NUM_SENSORS <= zeta < (i + 1) / NUM_SENSORS:
+                    # Instant Anomaly
+                    if ANOMALY_TYPE_ACTUAL == 1:
+                        anomaly = SCALE * np.random.normal(0, 0.1)
+                        if i == 0:
+                            In_vehicle_anomaly[t] += anomaly
+                        elif i == 1:
+                            GPS_Speed_anomaly[t] += anomaly
+                        elif i == 2:
+                            Acc_anomaly[t] += anomaly
+                        class_output[t] = 1  # Mark anomaly occurrence
+                        break
+
+                    # Constant Anomaly
+                    elif ANOMALY_TYPE_ACTUAL == 2:
+                        anomaly = np.random.uniform(0, MAX_MAG_C)
+                        end_idx = min(t + DURATION_C, len(dfdata))  # Prevent index overflow
+                        if i == 0:
+                            In_vehicle_anomaly[t:end_idx] += anomaly
+                        elif i == 1:
+                            GPS_Speed_anomaly[t:end_idx] += anomaly
+                        elif i == 2:
+                            Acc_anomaly[t:end_idx] += anomaly
+                        class_output[t:end_idx] = 1  # Mark anomaly occurrence
+                        break
+
+                    # Gradual Drift Anomaly
+                    elif ANOMALY_TYPE_ACTUAL == 3:
+                        GD = np.linspace(0, MAX_MAG_G, num=DURATION_G)
+                        end_idx = min(t + DURATION_G, len(dfdata))  # Prevent index overflow
+                        if i == 0:
+                            In_vehicle_anomaly[t:end_idx] += GD[:end_idx - t]
+                        elif i == 1:
+                            GPS_Speed_anomaly[t:end_idx] += GD[:end_idx - t]
+                        elif i == 2:
+                            Acc_anomaly[t:end_idx] += GD[:end_idx - t]
+                        class_output[t:end_idx] = 1  # Mark anomaly occurrence
+                        break
+
+                    # Bias Anomaly
+                    elif ANOMALY_TYPE_ACTUAL == 4:
+                        anomaly = np.random.uniform(0, MAX_MAG_B)
+                        end_idx = min(t + DURATION_B, len(dfdata))  # Prevent index overflow
+                        if i == 0:
+                            In_vehicle_anomaly[t:end_idx] += anomaly
+                        elif i == 1:
+                            GPS_Speed_anomaly[t:end_idx] += anomaly
+                        elif i == 2:
+                            Acc_anomaly[t:end_idx] += anomaly
+                        class_output[t:end_idx] = 1  # Mark anomaly occurrence
+                        break
+
+    # Create a new DataFrame containing the anomalies
+    df_anomaly = dfdata.copy()
+    df_anomaly['InVehicle_Longitudinal_Speed'] = In_vehicle_anomaly
+    df_anomaly['GPS_Speed'] = GPS_Speed_anomaly
+    df_anomaly['InVehicle_Longitudinal_Accel'] = Acc_anomaly
+    df_anomaly['Class_Output'] = class_output
+
+    return df_anomaly
+
+
+# Sample usage with dummy DataFrame dfdata
+# dfdata = pd.read_csv("your_data.csv")  # Load your data
+
+# Apply anomalies and save the output
+df_anomaly = apply_anomalies(dfdata, ANOMALY_TYPE)
+
+# Define the filename using string formatting
+filename = f"data_with_anomaly_type_25{ANOMALY_TYPE}.csv"
+
+# Save the DataFrame to the CSV file
+df_anomaly.to_csv(filename, index=False)
+
+# Download the CSV file
+files.download(filename)
 
 
 <br>Preferred Citation:

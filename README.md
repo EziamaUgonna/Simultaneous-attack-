@@ -100,19 +100,19 @@ def apply_anomalies(dfdata, anomaly_type):
     return df_anomaly
 
 
-# Sample usage with dummy DataFrame dfdata
-# dfdata = pd.read_csv("your_data.csv")  # Load your data
+Sample usage with dummy DataFrame dfdata
+dfdata = pd.read_csv("your_data.csv")  # Load your data
 
-# Apply anomalies and save the output
+ Apply anomalies and save the output
 df_anomaly = apply_anomalies(dfdata, ANOMALY_TYPE)
 
-# Define the filename using string formatting
+ Define the filename using string formatting
 filename = f"data_with_anomaly_type_25{ANOMALY_TYPE}.csv"
 
-# Save the DataFrame to the CSV file
+ Save the DataFrame to the CSV file
 df_anomaly.to_csv(filename, index=False)
 
-# Download the CSV file
+ Download the CSV file
 files.download(filename)
 
 

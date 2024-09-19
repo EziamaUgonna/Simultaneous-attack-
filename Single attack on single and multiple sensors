@@ -1,0 +1,222 @@
+import numpy as np
+import pandas as pd
+import logging
+import os
+import matplotlib.pyplot as plt
+from google.colab import drive
+
+# Set up logging
+log_file_path = '/content/gdrive/MyDrive/attack_log.log'
+logging.basicConfig(filename=log_file_path, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Global variables
+ANOMALY_TYPE = 4  # (1 = Instant, 2 = Constant, 3 = Gradual Drift, 4 = Bias)
+NUM_SENSORS = 3  # Number of sensors
+ALPHA = 0.05  # Anomaly rate
+SCALE = 25  # Scaling factor for Instant Anomalies
+
+# Constant Anomaly variables
+DURATION_C = 3  # Duration for constant anomalies
+MAX_MAG_C = 5  # Maximum magnitude for constant anomalies
+
+# Gradual Drift Anomaly variables
+DURATION_G = 10  # Duration for gradual drift anomalies
+MAX_MAG_G = 2  # Maximum magnitude for gradual drift anomalies
+
+# Bias Anomaly variables
+DURATION_B = 5  # Duration for bias anomalies
+MAX_MAG_B = 1  # Maximum magnitude for bias anomalies
+
+# Define probabilities for each type of attack
+probabilities = [0.3, 0.5, 0.2]  # Probabilities for attacking 1, 2, or 3 sensors
+
+# Attack patterns
+two_sensor_patterns = [
+    (0, 1),  # Sensors 0 and 1 attacked
+    (0, 2),  # Sensors 0 and 2 attacked
+    (1, 2),  # Sensors 1 and 2 attacked
+]
+one_sensor_patterns = [
+    (0,),  # Only sensor 0 is attacked
+    (1,),  # Only sensor 1 is attacked
+    (2,),  # Only sensor 2 is attacked
+]
+
+def select_attack_pattern():
+    rand = np.random.uniform(0, 1)
+    cumulative_prob = 0.0
+    for i, prob in enumerate(probabilities):
+        cumulative_prob += prob
+        if rand < cumulative_prob:
+            if i == 0:
+                return one_sensor_patterns[np.random.choice(len(one_sensor_patterns))]
+            elif i == 1:
+                return two_sensor_patterns[np.random.choice(len(two_sensor_patterns))]
+            elif i == 2:
+                return (0, 1, 2)  # Attack all three sensors
+    return (0, 1, 2)  # Default case if none of the probabilities matched
+
+def apply_anomalies(dfdata):
+    # Copy sensor data to create anomaly-applied versions
+    In_vehicle_anomaly = dfdata['InVehicle_Longitudinal_Speed'].values.copy()
+    GPS_Speed_anomaly = dfdata['GPS_Speed'].values.copy()
+    Acc_anomaly = dfdata['InVehicle_Longitudinal_Accel'].values.copy()
+    class_output = np.zeros(len(dfdata))
+
+    # Dictionaries to keep track of sensor attack counts
+    attack_counts = {1: 0, 2: 0, 3: 0}  # Key: number of sensors, Value: count of occurrences
+
+    # Lists to store indices for each type of attack
+    three_sensor_indices = []
+    two_sensor_indices = []
+    one_sensor_indices = []
+
+    for t in range(len(dfdata)):  # Loop over the dataset length
+        if np.random.uniform(0, 1) <= ALPHA:  # Determine if anomaly should be applied based on ALPHA
+            current_attack_pattern = select_attack_pattern()
+
+            # Update attack counts
+            attack_counts[len(current_attack_pattern)] += 1
+
+            # Debug output for checking
+            print(f"Applying anomalies at time {t}. Attack counts so far: {attack_counts}")
+
+            # Loop through each selected sensor
+            for i in current_attack_pattern:
+                # Instant Anomaly
+                if ANOMALY_TYPE == 1:
+                    anomaly = SCALE * np.random.normal(0, 0.1)
+                    if i == 0:
+                        In_vehicle_anomaly[t] += anomaly
+                    elif i == 1:
+                        GPS_Speed_anomaly[t] += anomaly
+                    elif i == 2:
+                        Acc_anomaly[t] += anomaly
+                    class_output[t] = 1  # Mark anomaly occurrence
+
+                # Constant Anomaly
+                elif ANOMALY_TYPE == 2:
+                    anomaly = np.random.uniform(0, MAX_MAG_C)
+                    end_idx = min(t + DURATION_C, len(dfdata))  # Prevent index overflow
+                    if i == 0:
+                        In_vehicle_anomaly[t:end_idx] += anomaly
+                    elif i == 1:
+                        GPS_Speed_anomaly[t:end_idx] += anomaly
+                    elif i == 2:
+                        Acc_anomaly[t:end_idx] += anomaly
+                    class_output[t:end_idx] = 1  # Mark anomaly occurrence
+
+                # Gradual Drift Anomaly
+                elif ANOMALY_TYPE == 3:
+                    GD = np.linspace(0, MAX_MAG_G, num=DURATION_G)
+                    end_idx = min(t + DURATION_G, len(dfdata))  # Prevent index overflow
+                    if i == 0:
+                        In_vehicle_anomaly[t:end_idx] += GD[:end_idx - t]
+                    elif i == 1:
+                        GPS_Speed_anomaly[t:end_idx] += GD[:end_idx - t]
+                    elif i == 2:
+                        Acc_anomaly[t:end_idx] += GD[:end_idx - t]
+                    class_output[t:end_idx] = 1  # Mark anomaly occurrence
+
+                # Bias Anomaly
+                elif ANOMALY_TYPE == 4:
+                    anomaly = np.random.uniform(0, MAX_MAG_B)  # Bias value
+                    end_idx = min(t + DURATION_B, len(dfdata))  # Ensure it stays within the dataset range
+                    if i == 0:
+                        for d in range(DURATION_B):  # Apply the bias over DURATION_B
+                            if t + d < len(dfdata):
+                                In_vehicle_anomaly[t + d] += anomaly
+                    elif i == 1:
+                        for d in range(DURATION_B):
+                            if t + d < len(dfdata):
+                                GPS_Speed_anomaly[t + d] += anomaly
+                    elif i == 2:
+                        for d in range(DURATION_B):
+                            if t + d < len(dfdata):
+                                Acc_anomaly[t + d] += anomaly
+                    class_output[t:t + DURATION_B] = 1  # Mark anomaly occurrence over duration
+
+    # Log the number of sensors attacked
+    logging.info(f"Attack counts - 1 sensor: {attack_counts[1]}, 2 sensors: {attack_counts[2]}, 3 sensors: {attack_counts[3]}")
+    print(f"Logged attack counts: {attack_counts}")
+
+    # Create a new DataFrame containing the anomalies
+    df_anomaly = dfdata.copy()
+    df_anomaly['InVehicle_Longitudinal_Speed'] = In_vehicle_anomaly
+    df_anomaly['GPS_Speed'] = GPS_Speed_anomaly
+    df_anomaly['InVehicle_Longitudinal_Accel'] = Acc_anomaly
+    df_anomaly['Class_Output'] = class_output
+
+    # Create DataFrames for each type of attack
+    df_three_sensor = dfdata.iloc[three_sensor_indices].copy()
+    df_three_sensor['InVehicle_Longitudinal_Speed'] = In_vehicle_anomaly[three_sensor_indices]
+    df_three_sensor['GPS_Speed'] = GPS_Speed_anomaly[three_sensor_indices]
+    df_three_sensor['InVehicle_Longitudinal_Accel'] = Acc_anomaly[three_sensor_indices]
+    df_three_sensor['Class_Output'] = class_output[three_sensor_indices]
+
+    df_two_sensor = dfdata.iloc[two_sensor_indices].copy()
+    df_two_sensor['InVehicle_Longitudinal_Speed'] = In_vehicle_anomaly[two_sensor_indices]
+    df_two_sensor['GPS_Speed'] = GPS_Speed_anomaly[two_sensor_indices]
+    df_two_sensor['InVehicle_Longitudinal_Accel'] = Acc_anomaly[two_sensor_indices]
+    df_two_sensor['Class_Output'] = class_output[two_sensor_indices]
+
+    df_one_sensor = dfdata.iloc[one_sensor_indices].copy()
+    df_one_sensor['InVehicle_Longitudinal_Speed'] = In_vehicle_anomaly[one_sensor_indices]
+    df_one_sensor['GPS_Speed'] = GPS_Speed_anomaly[one_sensor_indices]
+    df_one_sensor['InVehicle_Longitudinal_Accel'] = Acc_anomaly[one_sensor_indices]
+    df_one_sensor['Class_Output'] = class_output[one_sensor_indices]
+
+    return df_anomaly, df_three_sensor, df_two_sensor, df_one_sensor
+
+def visualize_log_data(log_file_path):
+    log_data = {"1 sensor": 0, "2 sensors": 0, "3 sensors": 0}
+
+    # Check if log file exists
+    if not os.path.isfile(log_file_path):
+        print(f"Log file does not exist at: {log_file_path}")
+        return
+    
+    # Read and process log file
+    try:
+        with open(log_file_path, 'r') as file:
+            lines = file.readlines()
+            for line in lines:
+                if 'Attack counts' in line:
+                    # Extract numbers from the log entry
+                    parts = line.split()
+                    log_data["1 sensor"] += int(parts[6].strip(','))
+                    log_data["2 sensors"] += int(parts[8].strip(','))
+                    log_data["3 sensors"] += int(parts[10])
+    except Exception as e:
+        print(f"Error reading log file: {e}")
+        return
+
+    # Create a bar plot for the attack counts
+    labels = list(log_data.keys())
+    values = list(log_data.values())
+    plt.bar(labels, values, color=['blue', 'orange', 'green'])
+    plt.xlabel('Number of Sensors Attacked')
+    plt.ylabel('Count')
+    plt.title('Frequency of Attacks on Different Numbers of Sensors')
+    plt.savefig('/content/gdrive/MyDrive/attack_count_plot.png')  # Save plot to file
+    plt.show()
+
+# Main execution
+if __name__ == "__main__":
+    # Mount Google Drive
+    drive.mount('/content/gdrive')
+
+    # Load data (replace with your actual data loading code)
+    dfdata = pd.read_csv('/content/gdrive/MyDrive/sensor_data.csv')
+
+    # Apply anomalies and get results
+    df_anomaly, df_three_sensor, df_two_sensor, df_one_sensor = apply_anomalies(dfdata)
+
+    # Save results to CSV files
+    df_anomaly.to_csv('/content/gdrive/MyDrive/sensor_data_with_anomalies.csv', index=False)
+    df_three_sensor.to_csv('/content/gdrive/MyDrive/three_sensor_attacks.csv', index=False)
+    df_two_sensor.to_csv('/content/gdrive/MyDrive/two_sensor_attacks.csv', index=False)
+    df_one_sensor.to_csv('/content/gdrive/MyDrive/one_sensor_attacks.csv', index=False)
+
+    # Visualize log data
+    visualize_log_data(log_file_path)

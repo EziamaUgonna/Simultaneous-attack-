@@ -1,0 +1,127 @@
+
+import numpy as np
+
+# Global variables
+ANOMALY_TYPES = [1, 2, 3, 4]  # 1 = Instant, 2 = Constant, 3 = Gradual Drift, 4 = Bias
+NUM_SENSORS = 3  # Number of sensors
+ALPHA = 0.05  # Anomaly rate
+SCALE = 25  # Scaling factor for Instant Anomalies
+
+# Constant Anomaly variables
+DURATION_C = 3  # Duration for constant anomalies
+MAX_MAG_C = 5  # Maximum magnitude for constant anomalies
+
+# Gradual Drift Anomaly variables
+DURATION_G = 10  # Duration for gradual drift anomalies
+MAX_MAG_G = 2  # Maximum magnitude for gradual drift anomalies
+
+# Bias Anomaly variables
+DURATION_B = 5  # Duration for bias anomalies
+MAX_MAG_B = 1  # Maximum magnitude for bias anomalies
+
+# Probability distributions for the number of sensors to attack
+PROB_ONE_SENSOR = 0.2  # Probability of attacking 1 sensor
+PROB_TWO_SENSORS = 0.5  # Probability of attacking 2 sensors
+PROB_THREE_SENSORS = 0.3  # Probability of attacking 3 sensors
+
+# Attack patterns
+two_sensor_patterns = [
+    (0, 1),  # Sensors 0 and 1 attacked
+    (0, 2),  # Sensors 0 and 2 attacked
+    (1, 2),  # Sensors 1 and 2 attacked
+]
+one_sensor_patterns = [
+    (0,),  # Only sensor 0 is attacked
+    (1,),  # Only sensor 1 is attacked
+    (2,),  # Only sensor 2 is attacked
+]
+
+def select_attack_pattern():
+    """
+    Selects an attack pattern based on predefined probabilities.
+    Returns a tuple indicating which sensors are attacked.
+    """
+    rand = np.random.uniform(0, 1)
+    if rand < PROB_ONE_SENSOR:
+        return one_sensor_patterns[np.random.choice(len(one_sensor_patterns))]
+    elif rand < PROB_ONE_SENSOR + PROB_TWO_SENSORS:
+        return two_sensor_patterns[np.random.choice(len(two_sensor_patterns))]
+    else:
+        return (0, 1, 2)  # Attack all three sensors
+
+def apply_anomalies(dfdata):
+    """
+    Applies anomalies to the dataset based on selected attack patterns and anomaly types.
+    """
+    # Copy sensor data to create anomaly-applied versions
+    In_vehicle_anomaly = dfdata['InVehicle_Longitudinal_Speed'].values.copy()
+    GPS_Speed_anomaly = dfdata['GPS_Speed'].values.copy()
+    Acc_anomaly = dfdata['InVehicle_Longitudinal_Accel'].values.copy()
+    class_output = np.zeros(len(dfdata))
+
+    # Loop over the dataset length
+    for t in range(len(dfdata)):
+        if np.random.uniform(0, 1) <= ALPHA:  # Determine if anomaly should be applied based on ALPHA
+            current_attack_pattern = select_attack_pattern()
+            anomaly_type = np.random.choice(ANOMALY_TYPES)  # Select an anomaly type
+
+            # Loop through each selected sensor
+            for i in current_attack_pattern:
+                # Apply selected anomaly type
+                if anomaly_type == 1:  # Instant Anomaly
+                    anomaly = SCALE * np.random.normal(0, 0.1)
+                    if i == 0:
+                        In_vehicle_anomaly[t] += anomaly
+                    elif i == 1:
+                        GPS_Speed_anomaly[t] += anomaly
+                    elif i == 2:
+                        Acc_anomaly[t] += anomaly
+                    class_output[t] = 1
+
+                elif anomaly_type == 2:  # Constant Anomaly
+                    anomaly = np.random.uniform(0, MAX_MAG_C)
+                    end_idx = min(t + DURATION_C, len(dfdata))
+                    if i == 0:
+                        In_vehicle_anomaly[t:end_idx] += anomaly
+                    elif i == 1:
+                        GPS_Speed_anomaly[t:end_idx] += anomaly
+                    elif i == 2:
+                        Acc_anomaly[t:end_idx] += anomaly
+                    class_output[t:end_idx] = 1
+
+                elif anomaly_type == 3:  # Gradual Drift Anomaly
+                    GD = np.linspace(0, MAX_MAG_G, num=DURATION_G)
+                    end_idx = min(t + DURATION_G, len(dfdata))
+                    if i == 0:
+                        In_vehicle_anomaly[t:end_idx] += GD[:end_idx - t]
+                    elif i == 1:
+                        GPS_Speed_anomaly[t:end_idx] += GD[:end_idx - t]
+                    elif i == 2:
+                        Acc_anomaly[t:end_idx] += GD[:end_idx - t]
+                    class_output[t:end_idx] = 1
+
+                elif anomaly_type == 4:  # Bias Anomaly
+                    anomaly = np.random.uniform(0, MAX_MAG_B)
+                    end_idx = min(t + DURATION_B, len(dfdata))
+                    if i == 0:
+                        for d in range(DURATION_B):
+                            if t + d < len(dfdata):
+                                In_vehicle_anomaly[t + d] += anomaly
+                    elif i == 1:
+                        for d in range(DURATION_B):
+                            if t + d < len(dfdata):
+                                GPS_Speed_anomaly[t + d] += anomaly
+                    elif i == 2:
+                        for d in range(DURATION_B):
+                            if t + d < len(dfdata):
+                                Acc_anomaly[t + d] += anomaly
+                    class_output[t:t + DURATION_B] = 1
+
+    # Create a new DataFrame containing the anomalies
+    df_anomaly = dfdata.copy()
+    df_anomaly['InVehicle_Longitudinal_Speed'] = In_vehicle_anomaly
+    df_anomaly['GPS_Speed'] = GPS_Speed_anomaly
+    df_anomaly['InVehicle_Longitudinal_Accel'] = Acc_anomaly
+    df_anomaly['Class_Output'] = class_output
+
+    return df_anomaly

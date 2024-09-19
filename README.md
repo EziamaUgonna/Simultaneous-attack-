@@ -118,3 +118,14 @@ files.download(filename)
 
 <br>Preferred Citation:
 
+"""***Explanation:***
+select_attack_pattern() Function:
+
+Randomly selects how many sensors will be attacked based on predefined probabilities.
+Returns the specific sensors that will be affected.
+apply_anomalies() Function:
+
+Loops through the dataset and applies anomalies based on the attack pattern and anomaly type.
+Anomaly types are applied differently: Instant, Constant, Gradual Drift, and Bias.
+Updates the dataset with anomaly-applied values and sets a class output indicating where anomalies occurred.
+This code simulates various attack scenarios by modifying the data with different types of anomalies and applies them to the selected sensors according to the attack patterns."""
